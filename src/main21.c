@@ -41,10 +41,10 @@
 
 /** \mainpage
  * \section intro Introduction
- * This example demonstrates the use of the WINC1500 with the SAM Xplained Pro
+ * This example demonstrates the use of the WINC1500 with the SAMD21 Xplained Pro
  * board to start Wi-Fi provisioning mode using WINC1500 embedded HTTP server.<br>
  * It uses the following hardware:
- * - the SAM Xplained Pro.
+ * - the SAMD21 Xplained Pro.
  * - the WINC1500 on EXT1.
  *
  * \section files Main Files
@@ -86,7 +86,6 @@
  */
 
 #include "asf.h"
-#include <string.h>
 #include "common/include/nm_common.h"
 #include "driver/include/m2m_wifi.h"
 #include "main.h"
@@ -96,21 +95,26 @@
 	"-- "BOARD_NAME " --"STRING_EOL	\
 	"-- Compiled: "__DATE__ " "__TIME__ " --"STRING_EOL
 
+/** UART module for debug. */
+static struct usart_module cdc_uart_module;
+
 /**
  * \brief Configure UART console.
  */
 static void configure_console(void)
 {
-	const usart_serial_options_t uart_serial_options = {
-		.baudrate =		CONF_UART_BAUDRATE,
-		.charlength =	CONF_UART_CHAR_LENGTH,
-		.paritytype =	CONF_UART_PARITY,
-		.stopbits =		CONF_UART_STOP_BITS,
-	};
+	struct usart_config usart_conf;
 
-	/* Configure UART console. */
-	sysclk_enable_peripheral_clock(CONSOLE_UART_ID);
-	stdio_serial_init(CONF_UART, &uart_serial_options);
+	usart_get_config_defaults(&usart_conf);
+	usart_conf.mux_setting = EDBG_CDC_SERCOM_MUX_SETTING;
+	usart_conf.pinmux_pad0 = EDBG_CDC_SERCOM_PINMUX_PAD0;
+	usart_conf.pinmux_pad1 = EDBG_CDC_SERCOM_PINMUX_PAD1;
+	usart_conf.pinmux_pad2 = EDBG_CDC_SERCOM_PINMUX_PAD2;
+	usart_conf.pinmux_pad3 = EDBG_CDC_SERCOM_PINMUX_PAD3;
+	usart_conf.baudrate    = 115200;
+
+	stdio_serial_init(&cdc_uart_module, EDBG_CDC_MODULE, &usart_conf);
+	usart_enable(&cdc_uart_module);
 }
 
 #define HEX2ASCII(x) (((x) >= 10) ? (((x) - 10) + 'A') : ((x) + '0'))
@@ -192,8 +196,7 @@ int main(void)
 	uint8_t u8IsMacAddrValid;
 
 	/* Initialize the board. */
-	sysclk_init();
-	board_init();
+	system_init();
 
 	/* Initialize the UART console. */
 	configure_console();
