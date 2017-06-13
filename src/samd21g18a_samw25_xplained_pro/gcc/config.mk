@@ -68,11 +68,11 @@ CSRCS = \
        common/components/wifi/winc1500/driver/source/nmi2c.c \
        common/components/wifi/winc1500/driver/source/nmspi.c \
        common/components/wifi/winc1500/driver/source/nmuart.c \
-       main21.c \
        common/components/wifi/winc1500/socket/source/socket.c \
        common/components/wifi/winc1500/spi_flash/source/spi_flash.c \
        common/utils/interrupt/interrupt_sam_nvic.c        \
        common2/services/delay/sam0/systick_counter.c      \
+       main21.c \
        sam0/boards/samw25_xplained_pro/board_init.c       \
        sam0/drivers/extint/extint_callback.c              \
        sam0/drivers/extint/extint_sam_d_r_h/extint.c      \
