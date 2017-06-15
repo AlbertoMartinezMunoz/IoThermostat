@@ -132,8 +132,7 @@ INC_PATH = \
        samd21g18a_samw25_xplained_pro                     \
        samd21g18a_samw25_xplained_pro/gcc                 \
        thirdparty/CMSIS/Include                           \
-       thirdparty/CMSIS/Lib/GCC 
-       
+       thirdparty/CMSIS/Lib/GCC            
 
 # Additional search paths for libraries.
 LIB_PATH =  \
