@@ -52,17 +52,12 @@ Mkfile.old
 dkms.conf
 
 # Custom Rules
-src/samd21_xplained_pro/gcc/thirdparty/
-src/samd21_xplained_pro/gcc/thirdparty_lwip_raw_basic_http_example_ajax_flash.bin
-src/samd21_xplained_pro/gcc/thirdparty_lwip_raw_basic_http_example_ajax_flash.elf
-src/samd21_xplained_pro/gcc/thirdparty_lwip_raw_basic_http_example_ajax_flash.hex
-src/samd21_xplained_pro/gcc/thirdparty_lwip_raw_basic_http_example_ajax_flash.lss
-src/samd21_xplained_pro/gcc/thirdparty_lwip_raw_basic_http_example_ajax_flash.map
-src/samd21_xplained_pro/gcc/thirdparty_lwip_raw_basic_http_example_ajax_flash.sym
-
-winc1500_provision_http_example_flash.bin
-winc1500_provision_http_example_flash.lss
-winc1500_provision_http_example_flash.sym
+*.bin
+*.elf
+*.hex
+*.lss
+*.map
+*.sym
 
 .cproject
 .project

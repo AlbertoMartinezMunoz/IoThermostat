@@ -47,11 +47,12 @@ PART = samd21g18a
 
 # Application target name. Given with suffix .a for library and .elf for a
 # standalone application.
-TARGET_FLASH = winc1500_provision_http_example_flash.elf
-TARGET_SRAM = winc1500_provision_http_example_sram.elf
+TARGET_FLASH = winc1500_simple_tcp_server_example_flash.elf
+TARGET_SRAM = winc1500_simple_tcp_server_example_sram.elf
 
 # List of C source files.
 CSRCS = \
+	   ./main21.c                                           \
        common/components/wifi/winc1500/bsp/source/nm_bsp_samd21.c \
        common/components/wifi/winc1500/bus_wrapper/source/nm_bus_wrapper_samd21.c \
        common/components/wifi/winc1500/common/source/nm_common.c \
@@ -72,7 +73,6 @@ CSRCS = \
        common/components/wifi/winc1500/spi_flash/source/spi_flash.c \
        common/utils/interrupt/interrupt_sam_nvic.c        \
        common2/services/delay/sam0/systick_counter.c      \
-       main21.c \
        sam0/boards/samw25_xplained_pro/board_init.c       \
        sam0/drivers/extint/extint_callback.c              \
        sam0/drivers/extint/extint_sam_d_r_h/extint.c      \
@@ -131,8 +131,10 @@ INC_PATH = \
        sam0/utils/stdio/stdio_serial                      \
        samd21g18a_samw25_xplained_pro                     \
        samd21g18a_samw25_xplained_pro/gcc                 \
+       script                                             \
        thirdparty/CMSIS/Include                           \
-       thirdparty/CMSIS/Lib/GCC            
+       thirdparty/CMSIS/Lib/GCC 
+       
 
 # Additional search paths for libraries.
 LIB_PATH =  \

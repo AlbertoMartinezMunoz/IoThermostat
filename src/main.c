@@ -2,7 +2,7 @@
  *
  * \file
  *
- * \brief WINC1500 HTTP provision example.
+ * \brief WINC1500 TCP Server Example.
  *
  * Copyright (c) 2016 Atmel Corporation. All rights reserved.
  *
@@ -42,15 +42,25 @@
 /** \mainpage
  * \section intro Introduction
  * This example demonstrates the use of the WINC1500 with the SAM Xplained Pro
- * board to start Wi-Fi provisioning mode using WINC1500 embedded HTTP server.<br>
+ * board to test TCP server.<br>
  * It uses the following hardware:
  * - the SAM Xplained Pro.
  * - the WINC1500 on EXT1.
  *
  * \section files Main Files
- * - main.c : Initialize the WINC1500 and start Provision Mode.
+ * - main.c : Initialize the WINC1500 and test TCP server.
  *
  * \section usage Usage
+ * -# Configure below code in the main.h for AP information to be connected.
+ * \code
+ *    #define MAIN_WLAN_SSID                    "DEMO_AP"
+ *    #define MAIN_WLAN_AUTH                    M2M_WIFI_SEC_WPA_PSK
+ *    #define MAIN_WLAN_PSK                     "12345678"
+ *    #define MAIN_WIFI_M2M_PRODUCT_NAME        "NMCTemp"
+ *    #define MAIN_WIFI_M2M_SERVER_IP           0xFFFFFFFF // "255.255.255.255"
+ *    #define MAIN_WIFI_M2M_SERVER_PORT         (6666)
+ *    #define MAIN_WIFI_M2M_REPORT_INTERVAL     (1000)
+ * \endcode
  * -# Build the program and download it into the board.
  * -# On the computer, open and configure a terminal application as the follows.
  * \code
@@ -63,17 +73,18 @@
  * -# Start the application.
  * -# In the terminal window, the following text should appear:
  * \code
- *    -- WINC1500 HTTP provision example --
+ *    -- WINC1500 TCP server example --
  *    -- SAMD21_XPLAINED_PRO --
  *    -- Compiled: xxx xx xxxx xx:xx:xx --
- *    Provision Mode started.
- *    Connect to [atmelconfig.com] via AP[WINC1500_xx:xx] and fill up the page
- *    wifi_cb: M2M_WIFI_RESP_CON_STATE_CHANGED: CONNECTED.
+ *    wifi_cb: M2M_WIFI_RESP_CON_STATE_CHANGED: CONNECTED
  *    wifi_cb: M2M_WIFI_REQ_DHCP_CONF: IP is xxx.xxx.xxx.xxx
- *    wifi_cb: M2M_WIFI_RESP_CON_STATE_CHANGED: DISCONNECTED.
- *    wifi_cb: M2M_WIFI_RESP_PROVISION_INFO.
- *    wifi_cb: M2M_WIFI_RESP_CON_STATE_CHANGED: CONNECTED.
- *    wifi_cb: M2M_WIFI_REQ_DHCP_CONF: IP is xxx.xxx.xxx.xxx
+ *    socket_cb: bind success!
+ *    socket_cb: listen success!
+ *    socket_cb: accept success!
+ *    socket_cb: recv success!
+ *    socket_cb: send success!
+ *    TCP Server Test Complete!
+ *    close socket
  * \endcode
  *
  * \section compinfo Compilation Information
@@ -87,14 +98,35 @@
 
 #include "asf.h"
 #include <string.h>
+#include "main.h"
 #include "common/include/nm_common.h"
 #include "driver/include/m2m_wifi.h"
-#include "main.h"
+#include "socket/include/socket.h"
 
 #define STRING_EOL    "\r\n"
-#define STRING_HEADER "-- WINC1500 HTTP provision example --"STRING_EOL	\
+#define STRING_HEADER "-- WINC1500 TCP server example --"STRING_EOL \
 	"-- "BOARD_NAME " --"STRING_EOL	\
 	"-- Compiled: "__DATE__ " "__TIME__ " --"STRING_EOL
+
+/** Message format definitions. */
+typedef struct s_msg_wifi_product {
+	uint8_t name[9];
+} t_msg_wifi_product;
+
+/** Message format declarations. */
+static t_msg_wifi_product msg_wifi_product = {
+	.name = MAIN_WIFI_M2M_PRODUCT_NAME,
+};
+
+/** Receive buffer definition. */
+static uint8_t gau8SocketTestBuffer[MAIN_WIFI_M2M_BUFFER_SIZE];
+
+/** Socket for TCP communication */
+static SOCKET tcp_server_socket = -1;
+static SOCKET tcp_client_socket = -1;
+
+/** Wi-Fi connection state */
+static uint8_t wifi_connected;
 
 /**
  * \brief Configure UART console.
@@ -113,28 +145,132 @@ static void configure_console(void)
 	stdio_serial_init(CONF_UART, &uart_serial_options);
 }
 
-#define HEX2ASCII(x) (((x) >= 10) ? (((x) - 10) + 'A') : ((x) + '0'))
-static void set_dev_name_to_mac(uint8 *name, uint8 *mac_addr)
+/**
+ * \brief Callback to get the Data from socket.
+ *
+ * \param[in] sock socket handler.
+ * \param[in] u8Msg socket event type. Possible values are:
+ *  - SOCKET_MSG_BIND
+ *  - SOCKET_MSG_LISTEN
+ *  - SOCKET_MSG_ACCEPT
+ *  - SOCKET_MSG_CONNECT
+ *  - SOCKET_MSG_RECV
+ *  - SOCKET_MSG_SEND
+ *  - SOCKET_MSG_SENDTO
+ *  - SOCKET_MSG_RECVFROM
+ * \param[in] pvMsg is a pointer to message structure. Existing types are:
+ *  - tstrSocketBindMsg
+ *  - tstrSocketListenMsg
+ *  - tstrSocketAcceptMsg
+ *  - tstrSocketConnectMsg
+ *  - tstrSocketRecvMsg
+ */
+static void socket_cb(SOCKET sock, uint8_t u8Msg, void *pvMsg)
 {
-	/* Name must be in the format WINC1500_00:00 */
-	uint16 len;
+	switch (u8Msg) {
+	/* Socket bind */
+	case SOCKET_MSG_BIND:
+	{
+		tstrSocketBindMsg *pstrBind = (tstrSocketBindMsg *)pvMsg;
+		if (pstrBind && pstrBind->status == 0) {
+			printf("socket_cb: bind success!\r\n");
+			listen(tcp_server_socket, 0);
+		} else {
+			printf("socket_cb: bind error!\r\n");
+			close(tcp_server_socket);
+			tcp_server_socket = -1;
+		}
+	}
+	break;
 
-	len = m2m_strlen(name);
-	if (len >= 5) {
-		name[len - 1] = HEX2ASCII((mac_addr[5] >> 0) & 0x0f);
-		name[len - 2] = HEX2ASCII((mac_addr[5] >> 4) & 0x0f);
-		name[len - 4] = HEX2ASCII((mac_addr[4] >> 0) & 0x0f);
-		name[len - 5] = HEX2ASCII((mac_addr[4] >> 4) & 0x0f);
+	/* Socket listen */
+	case SOCKET_MSG_LISTEN:
+	{
+		tstrSocketListenMsg *pstrListen = (tstrSocketListenMsg *)pvMsg;
+		if (pstrListen && pstrListen->status == 0) {
+			printf("socket_cb: listen success!\r\n");
+			accept(tcp_server_socket, NULL, NULL);
+		} else {
+			printf("socket_cb: listen error!\r\n");
+			close(tcp_server_socket);
+			tcp_server_socket = -1;
+		}
+	}
+	break;
+
+	/* Connect accept */
+	case SOCKET_MSG_ACCEPT:
+	{
+		tstrSocketAcceptMsg *pstrAccept = (tstrSocketAcceptMsg *)pvMsg;
+		if (pstrAccept) {
+			printf("socket_cb: accept success!\r\n");
+			accept(tcp_server_socket, NULL, NULL);
+			tcp_client_socket = pstrAccept->sock;
+			recv(tcp_client_socket, gau8SocketTestBuffer, sizeof(gau8SocketTestBuffer), 0);
+		} else {
+			printf("socket_cb: accept error!\r\n");
+			close(tcp_server_socket);
+			tcp_server_socket = -1;
+		}
+	}
+	break;
+
+	/* Message send */
+	case SOCKET_MSG_SEND:
+	{
+		printf("socket_cb: send success!\r\n");
+		printf("TCP Server Test Complete!\r\n");
+		printf("close socket\n");
+		close(tcp_client_socket);
+		close(tcp_server_socket);
+	}
+	break;
+
+	/* Message receive */
+	case SOCKET_MSG_RECV:
+	{
+		tstrSocketRecvMsg *pstrRecv = (tstrSocketRecvMsg *)pvMsg;
+		if (pstrRecv && pstrRecv->s16BufferSize > 0) {
+			printf("socket_cb: recv success!\r\n");
+			send(tcp_client_socket, &msg_wifi_product, sizeof(t_msg_wifi_product), 0);
+		} else {
+			printf("socket_cb: recv error!\r\n");
+			close(tcp_server_socket);
+			tcp_server_socket = -1;
+		}
+	}
+
+	break;
+
+	default:
+		break;
 	}
 }
 
 /**
  * \brief Callback to get the Wi-Fi status update.
  *
- * \param[in] u8MsgType type of Wi-Fi notification.
+ * \param[in] u8MsgType type of Wi-Fi notification. Possible types are:
+ *  - [M2M_WIFI_RESP_CURRENT_RSSI](@ref M2M_WIFI_RESP_CURRENT_RSSI)
+ *  - [M2M_WIFI_RESP_CON_STATE_CHANGED](@ref M2M_WIFI_RESP_CON_STATE_CHANGED)
+ *  - [M2M_WIFI_RESP_CONNTION_STATE](@ref M2M_WIFI_RESP_CONNTION_STATE)
+ *  - [M2M_WIFI_RESP_SCAN_DONE](@ref M2M_WIFI_RESP_SCAN_DONE)
+ *  - [M2M_WIFI_RESP_SCAN_RESULT](@ref M2M_WIFI_RESP_SCAN_RESULT)
+ *  - [M2M_WIFI_REQ_WPS](@ref M2M_WIFI_REQ_WPS)
+ *  - [M2M_WIFI_RESP_IP_CONFIGURED](@ref M2M_WIFI_RESP_IP_CONFIGURED)
+ *  - [M2M_WIFI_RESP_IP_CONFLICT](@ref M2M_WIFI_RESP_IP_CONFLICT)
+ *  - [M2M_WIFI_RESP_P2P](@ref M2M_WIFI_RESP_P2P)
+ *  - [M2M_WIFI_RESP_AP](@ref M2M_WIFI_RESP_AP)
+ *  - [M2M_WIFI_RESP_CLIENT_INFO](@ref M2M_WIFI_RESP_CLIENT_INFO)
  * \param[in] pvMsg A pointer to a buffer containing the notification parameters
- *
- * \return None.
+ * (if any). It should be casted to the correct data type corresponding to the
+ * notification type. Existing types are:
+ *  - tstrM2mWifiStateChanged
+ *  - tstrM2MWPSInfo
+ *  - tstrM2MP2pResp
+ *  - tstrM2MAPResp
+ *  - tstrM2mScanDone
+ *  - tstrM2mWifiscanResult
  */
 static void wifi_cb(uint8_t u8MsgType, void *pvMsg)
 {
@@ -143,10 +279,12 @@ static void wifi_cb(uint8_t u8MsgType, void *pvMsg)
 	{
 		tstrM2mWifiStateChanged *pstrWifiState = (tstrM2mWifiStateChanged *)pvMsg;
 		if (pstrWifiState->u8CurrState == M2M_WIFI_CONNECTED) {
-			printf("wifi_cb: M2M_WIFI_RESP_CON_STATE_CHANGED: CONNECTED.\r\n");
+			printf("wifi_cb: M2M_WIFI_RESP_CON_STATE_CHANGED: CONNECTED\r\n");
 			m2m_wifi_request_dhcp_client();
 		} else if (pstrWifiState->u8CurrState == M2M_WIFI_DISCONNECTED) {
-			printf("wifi_cb: M2M_WIFI_RESP_CON_STATE_CHANGED: DISCONNECTED.\r\n");
+			printf("wifi_cb: M2M_WIFI_RESP_CON_STATE_CHANGED: DISCONNECTED\r\n");
+			wifi_connected = 0;
+			m2m_wifi_connect((char *)MAIN_WLAN_SSID, sizeof(MAIN_WLAN_SSID), MAIN_WLAN_AUTH, (char *)MAIN_WLAN_PSK, M2M_WIFI_CH_ALL);
 		}
 	}
 	break;
@@ -154,22 +292,9 @@ static void wifi_cb(uint8_t u8MsgType, void *pvMsg)
 	case M2M_WIFI_REQ_DHCP_CONF:
 	{
 		uint8_t *pu8IPAddress = (uint8_t *)pvMsg;
+		wifi_connected = 1;
 		printf("wifi_cb: M2M_WIFI_REQ_DHCP_CONF: IP is %u.%u.%u.%u\r\n",
 				pu8IPAddress[0], pu8IPAddress[1], pu8IPAddress[2], pu8IPAddress[3]);
-	}
-	break;
-
-	case M2M_WIFI_RESP_PROVISION_INFO:
-	{
-		tstrM2MProvisionInfo *pstrProvInfo = (tstrM2MProvisionInfo *)pvMsg;
-		printf("wifi_cb: M2M_WIFI_RESP_PROVISION_INFO.\r\n");
-
-		if (pstrProvInfo->u8Status == M2M_SUCCESS) {
-			m2m_wifi_connect((char *)pstrProvInfo->au8SSID, strlen((char *)pstrProvInfo->au8SSID), pstrProvInfo->u8SecType,
-					pstrProvInfo->au8Password, M2M_WIFI_CH_ALL);
-		} else {
-			printf("wifi_cb: Provision failed.\r\n");
-		}
 	}
 	break;
 
@@ -181,15 +306,15 @@ static void wifi_cb(uint8_t u8MsgType, void *pvMsg)
 /**
  * \brief Main application function.
  *
+ * Initialize system, UART console, network then test function of TCP server.
+ *
  * \return program return value.
  */
 int main(void)
 {
 	tstrWifiInitParam param;
 	int8_t ret;
-
-	uint8_t mac_addr[6];
-	uint8_t u8IsMacAddrValid;
+	struct sockaddr_in addr;
 
 	/* Initialize the board. */
 	sysclk_init();
@@ -201,6 +326,11 @@ int main(void)
 
 	/* Initialize the BSP. */
 	nm_bsp_init();
+
+	/* Initialize socket address structure. */
+	addr.sin_family = AF_INET;
+	addr.sin_port = _htons(MAIN_WIFI_M2M_SERVER_PORT);
+	addr.sin_addr.s_addr = 0;
 
 	/* Initialize Wi-Fi parameters structure. */
 	memset((uint8_t *)&param, 0, sizeof(tstrWifiInitParam));
@@ -214,26 +344,29 @@ int main(void)
 		}
 	}
 
-	m2m_wifi_get_otp_mac_address(mac_addr, &u8IsMacAddrValid);
-	if (!u8IsMacAddrValid) {
-		m2m_wifi_set_mac_address(gau8MacAddr);
-	}
+	/* Initialize socket module */
+	socketInit();
+	registerSocketCallback(socket_cb, NULL);
 
-	m2m_wifi_get_mac_address(gau8MacAddr);
-
-	set_dev_name_to_mac((uint8_t *)gacDeviceName, gau8MacAddr);
-	set_dev_name_to_mac((uint8_t *)gstrM2MAPConfig.au8SSID, gau8MacAddr);
-	m2m_wifi_set_device_name((uint8_t *)gacDeviceName, (uint8_t)m2m_strlen((uint8_t *)gacDeviceName));
-	gstrM2MAPConfig.au8DHCPServerIP[0] = 0xC0; /* 192 */
-	gstrM2MAPConfig.au8DHCPServerIP[1] = 0xA8; /* 168 */
-	gstrM2MAPConfig.au8DHCPServerIP[2] = 0x01; /* 1 */
-	gstrM2MAPConfig.au8DHCPServerIP[3] = 0x01; /* 1 */
-
-	m2m_wifi_start_provision_mode((tstrM2MAPConfig *)&gstrM2MAPConfig, (char *)gacHttpProvDomainName, 1);
-	printf("Provision Mode started.\r\nConnect to [%s] via AP[%s] and fill up the page.\r\n", MAIN_HTTP_PROV_SERVER_DOMAIN_NAME, gstrM2MAPConfig.au8SSID);
+	/* Connect to router. */
+	m2m_wifi_connect((char *)MAIN_WLAN_SSID, sizeof(MAIN_WLAN_SSID), MAIN_WLAN_AUTH, (char *)MAIN_WLAN_PSK, M2M_WIFI_CH_ALL);
 
 	while (1) {
+		/* Handle pending events from network controller. */
 		m2m_wifi_handle_events(NULL);
+
+		if (wifi_connected == M2M_WIFI_CONNECTED) {
+			if (tcp_server_socket < 0) {
+				/* Open TCP server socket */
+				if ((tcp_server_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+					printf("main: failed to create TCP server socket error!\r\n");
+					continue;
+				}
+
+				/* Bind service*/
+				bind(tcp_server_socket, (struct sockaddr *)&addr, sizeof(struct sockaddr_in));
+			}
+		}
 	}
 
 	return 0;
