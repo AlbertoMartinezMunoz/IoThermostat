@@ -1,0 +1,1 @@
+rsync --rsh='ssh' -av --progress --partial ./winc1500_simple_tcp_server_example_flash.bin pi@traquinedes.no-ip.biz:/home/pi/IoThermostat
